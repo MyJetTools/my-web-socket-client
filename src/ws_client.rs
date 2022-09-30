@@ -172,6 +172,7 @@ async fn read_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
             Ok(msg) => {
                 let ws_callback_spawned = ws_callback.clone();
                 let ws_connection_spawned = ws_connection.clone();
+                ws_connection.update_last_read_time(DateTimeAsMicroseconds::now());
                 let result = tokio::spawn(async move {
                     ws_callback_spawned
                         .on_data(ws_connection_spawned.clone(), msg)
