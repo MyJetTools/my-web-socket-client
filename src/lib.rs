@@ -6,3 +6,5 @@ pub use ws_callback::*;
 pub use ws_client::*;
 pub use ws_client_settings::*;
 pub use ws_connection::*;
+
+pub extern crate tokio_tungstenite;
