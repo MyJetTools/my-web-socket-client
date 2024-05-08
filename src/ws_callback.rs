@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tokio_tungstenite::tungstenite::Message;
+use hyper_tungstenite::tungstenite::Message;
 
 use super::WsConnection;
 

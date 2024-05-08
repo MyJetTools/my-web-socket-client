@@ -1,11 +1,11 @@
 use futures::stream::SplitStream;
-use futures::StreamExt;
-use rust_extensions::{date_time::DateTimeAsMicroseconds, Logger};
+use hyper::{upgrade::Upgraded, Request};
+use hyper_tungstenite::{tungstenite::Message, WebSocketStream};
+use hyper_util::rt::TokioIo;
+
+use rust_extensions::{date_time::DateTimeAsMicroseconds, Logger, StrOrString};
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
-
-use tokio::net::TcpStream;
-use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 use super::{WsCallback, WsClientSettings, WsConnection};
 
@@ -26,14 +26,14 @@ pub struct WebSocketClient {
 
 impl WebSocketClient {
     pub fn new(
-        name: String,
+        name: impl Into<StrOrString<'static>>,
         settings: Arc<dyn WsClientSettings + Send + Sync + 'static>,
         logger: Arc<dyn Logger + Send + Sync + 'static>,
     ) -> Self {
         Self {
             settings,
             logger,
-            name,
+            name: name.into().to_string(),
             timeouts: WebSocketTimeouts {
                 reconnect_timeout: Duration::from_secs(3),
                 ping_interval: Duration::from_secs(3),
@@ -76,12 +76,71 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
         log_ctx.insert("url".to_string(), url.clone());
         log_ctx.insert("name".to_string(), name.clone());
 
-        match tokio_tungstenite::connect_async(url).await {
-            Ok((stream, _)) => {
+        match super::connect::connect(url.as_str()).await {
+            Ok(send_request) => {
+                let (mut send_request, host_port) = send_request;
+                let body = http_body_util::Full::new(hyper::body::Bytes::from(vec![]));
+                let web_socket_key = generate_websocket_key();
+                let req = Request::get(url)
+                    .header("Host", host_port)
+                    .header("Upgrade", "websocket")
+                    .header("Connection", "Upgrade")
+                    .header("Sec-WebSocket-Key", web_socket_key)
+                    .header("Sec-WebSocket-Version", "13")
+                    .body(body)
+                    .unwrap();
+
+                let result = send_request.send_request(req).await;
+
+                let response = match result {
+                    Ok(response) => response,
+                    Err(err) => {
+                        logger.write_warning(
+                            "WebSocketConnectionLoop".to_string(),
+                            format!("Executing initial get request. Err: {:?}", err),
+                            Some(log_ctx),
+                        );
+
+                        continue;
+                    }
+                };
+
+                if response.status() != 101 {
+                    logger.write_warning(
+                        "WebSocketConnectionLoop".to_string(),
+                        format!("Initial get request. Status code: {:?}", response.status()),
+                        Some(log_ctx),
+                    );
+
+                    continue;
+                }
+
+                let result = hyper::upgrade::on(response).await;
+
+                let upgraded = match result {
+                    Ok(result) => result,
+                    Err(err) => {
+                        logger.write_warning(
+                            "WebSocketConnectionLoop".to_string(),
+                            format!("Upgrading to WebSocket. Err: {:?}", err),
+                            Some(log_ctx),
+                        );
+
+                        continue;
+                    }
+                };
+
                 connection_id += 1;
                 log_ctx.insert("connectionId".to_string(), connection_id.to_string());
 
-                let (write, read) = futures::StreamExt::split(stream);
+                let web_socket = WebSocketStream::from_raw_socket(
+                    TokioIo::new(upgraded),
+                    hyper_tungstenite::tungstenite::protocol::Role::Client,
+                    None,
+                )
+                .await;
+
+                let (write, read) = futures::StreamExt::split(web_socket);
 
                 let ws_connection = Arc::new(WsConnection::new(
                     connection_id,
@@ -144,17 +203,18 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
 }
 
 async fn read_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
-    mut read_stream: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+    mut read_stream: SplitStream<WebSocketStream<TokioIo<Upgraded>>>,
     ws_callback: Arc<TWsCallback>,
     ws_connection: Arc<WsConnection>,
     disconnect_timeout: Duration,
     logger: Arc<dyn Logger + Send + Sync + 'static>,
     log_ctx: HashMap<String, String>,
 ) {
+    use futures::stream::StreamExt;
     while ws_connection.is_connected() {
         let result = tokio::time::timeout(disconnect_timeout, read_stream.next()).await;
         if result.is_err() {
-            println!("read_loop. Timeout. Discoonecting... Err");
+            println!("read_loop. Timeout. Disconnecting... Err");
             ws_connection.disconnect().await;
             break;
         }
@@ -192,7 +252,7 @@ async fn read_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
             }
             Err(err) => {
                 println!(
-                    "Error reading loop. Can not get next message. Discoonecting... Err: {:?}",
+                    "Error reading loop. Can not get next message. Disconnecting... Err: {:?}",
                     err
                 );
                 ws_connection.disconnect().await;
@@ -225,4 +285,13 @@ async fn ping_loop(
 
         ws_connection.send_message(ping_message.clone()).await;
     }
+}
+
+fn generate_websocket_key() -> String {
+    use rand::Rng;
+    use rust_extensions::base64::IntoBase64;
+    let mut rng = rand::thread_rng();
+    let mut key = [0u8; 16];
+    rng.fill(&mut key);
+    key.as_ref().into_base64()
 }

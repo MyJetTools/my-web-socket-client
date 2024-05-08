@@ -6,5 +6,8 @@ pub use ws_callback::*;
 pub use ws_client::*;
 pub use ws_client_settings::*;
 pub use ws_connection::*;
+mod error;
+pub use error::*;
 
-pub extern crate tokio_tungstenite;
+pub extern crate hyper_tungstenite;
+mod connect;

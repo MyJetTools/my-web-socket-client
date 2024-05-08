@@ -1,16 +1,25 @@
 [package]
 name = "my-web-socket-client"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rust-extensions = { tag = "0.1.4", git = "https://github.com/MyJetTools/rust-extensions.git" }
-
+rust-extensions = { tag = "0.1.4", git = "https://github.com/MyJetTools/rust-extensions.git", features = [
+    "base64",
+] }
+my-tls = { tag = "0.1.1", git = "https://github.com/MyJetTools/my-tls.git" }
 tokio = { version = "*", features = ["full"] }
-tokio-tungstenite = { version = "0.20", features = ["native-tls"] }
+hyper-tungstenite = { version = "*" }
 
 future-utils = "*"
 futures = "*"
 async-trait = "*"
+hyper = { version = "*", features = ["full"] }
+tokio-rustls = { version = "0.26.*", features = ["tls12"] }
+
+http-body-util = "*"
+hyper-util = { version = "*", features = ["tokio", "server", "http1", "http2"] }
+bytes = "*"
+rand = "*"

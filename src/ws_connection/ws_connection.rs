@@ -1,9 +1,11 @@
 use std::{sync::atomic::AtomicBool, time::Duration};
 
 use futures::stream::SplitSink;
+use hyper::upgrade::Upgraded;
+use hyper_tungstenite::{tungstenite::Message, WebSocketStream};
+use hyper_util::rt::TokioIo;
 use rust_extensions::date_time::{AtomicDateTimeAsMicroseconds, DateTimeAsMicroseconds};
-use tokio::{net::TcpStream, sync::Mutex};
-use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use tokio::sync::Mutex;
 
 use super::WsConnectionSingleThreaded;
 
@@ -17,7 +19,7 @@ impl WsConnection {
     pub fn new(
         id: i64,
         send_timeout: Duration,
-        stream: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+        stream: SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>,
     ) -> Self {
         Self {
             single_threaded: Mutex::new(Some(WsConnectionSingleThreaded::new(

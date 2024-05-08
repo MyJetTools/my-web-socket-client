@@ -1,11 +1,12 @@
 use std::time::Duration;
 
 use futures::{stream::SplitSink, SinkExt};
-use tokio::net::TcpStream;
-use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use hyper::upgrade::Upgraded;
+use hyper_tungstenite::{tungstenite::Message, WebSocketStream};
+use hyper_util::rt::TokioIo;
 
 pub struct WsConnectionSingleThreaded {
-    pub stream: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+    pub stream: SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>,
     pub send_timeout: Duration,
     pub id: i64,
 }
@@ -13,7 +14,7 @@ pub struct WsConnectionSingleThreaded {
 impl WsConnectionSingleThreaded {
     pub fn new(
         send_timeout: Duration,
-        stream: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+        stream: SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>,
         id: i64,
     ) -> Self {
         Self {
