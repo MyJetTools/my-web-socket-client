@@ -5,20 +5,30 @@ use hyper_util::rt::TokioIo;
 
 use rust_extensions::{date_time::DateTimeAsMicroseconds, Logger, StrOrString};
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::{atomic::AtomicBool, Arc},
+    time::Duration,
+};
 
 use super::{WsCallback, WsClientSettings, WsConnection};
 
-#[derive(Clone, Copy)]
-pub struct WebSocketTimeouts {
+pub struct WebSocketInner {
     pub reconnect_timeout: Duration,
     pub ping_interval: Duration,
     pub disconnect_timeout: Duration,
     pub send_timeout: Duration,
+    pub working: AtomicBool,
+}
+
+impl WebSocketInner {
+    pub fn is_working(&self) -> bool {
+        self.working.load(std::sync::atomic::Ordering::Relaxed)
+    }
 }
 
 pub struct WebSocketClient {
-    pub timeouts: WebSocketTimeouts,
+    pub inner: Arc<WebSocketInner>,
     name: String,
     pub logger: Arc<dyn Logger + Send + Sync + 'static>,
     pub settings: Arc<dyn WsClientSettings + Send + Sync + 'static>,
@@ -34,12 +44,14 @@ impl WebSocketClient {
             settings,
             logger,
             name: name.into().to_string(),
-            timeouts: WebSocketTimeouts {
+            inner: WebSocketInner {
                 reconnect_timeout: Duration::from_secs(3),
                 ping_interval: Duration::from_secs(3),
                 disconnect_timeout: Duration::from_secs(9),
                 send_timeout: Duration::from_secs(30),
-            },
+                working: AtomicBool::new(true),
+            }
+            .into(),
         }
     }
 
@@ -50,26 +62,32 @@ impl WebSocketClient {
     ) {
         tokio::spawn(connection_loop(
             self.name.clone(),
-            self.timeouts,
+            self.inner.clone(),
             self.settings.clone(),
             self.logger.clone(),
             callback,
             ping_message,
         ));
     }
+
+    pub fn stop(&self) {
+        self.inner
+            .working
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
     name: String,
-    timeouts: WebSocketTimeouts,
+    inner: Arc<WebSocketInner>,
     endpoint: Arc<dyn WsClientSettings + Send + Sync + 'static>,
     logger: Arc<dyn Logger + Send + Sync + 'static>,
     ws_callback: Arc<TWsCallback>,
     ping_message: Message,
 ) {
     let mut connection_id = 0;
-    loop {
-        tokio::time::sleep(timeouts.reconnect_timeout).await;
+    while inner.is_working() {
+        tokio::time::sleep(inner.reconnect_timeout).await;
         let url = endpoint.get_url().await;
 
         let mut log_ctx = HashMap::new();
@@ -142,11 +160,8 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
 
                 let (write, read) = futures::StreamExt::split(web_socket);
 
-                let ws_connection = Arc::new(WsConnection::new(
-                    connection_id,
-                    timeouts.send_timeout,
-                    write,
-                ));
+                let ws_connection =
+                    Arc::new(WsConnection::new(connection_id, inner.send_timeout, write));
 
                 let callback_spawned = ws_callback.clone();
                 let ws_connection_spawned = ws_connection.clone();
@@ -168,19 +183,14 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
                 tokio::spawn(read_loop(
                     read,
                     ws_callback.clone(),
+                    inner.clone(),
                     ws_connection.clone(),
-                    timeouts.disconnect_timeout,
+                    inner.disconnect_timeout,
                     logger.clone(),
                     log_ctx.clone(),
                 ));
 
-                ping_loop(
-                    &ws_connection,
-                    timeouts.ping_interval,
-                    timeouts.disconnect_timeout,
-                    ping_message.clone(),
-                )
-                .await;
+                ping_loop(&ws_connection, inner.clone(), ping_message.clone()).await;
 
                 let callback_spawned = ws_callback.clone();
                 let ws_connection_spawned = ws_connection.clone();
@@ -205,6 +215,7 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
 async fn read_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
     mut read_stream: SplitStream<WebSocketStream<TokioIo<Upgraded>>>,
     ws_callback: Arc<TWsCallback>,
+    inner: Arc<WebSocketInner>,
     ws_connection: Arc<WsConnection>,
     disconnect_timeout: Duration,
     logger: Arc<dyn Logger + Send + Sync + 'static>,
@@ -212,6 +223,11 @@ async fn read_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
 ) {
     use futures::stream::StreamExt;
     while ws_connection.is_connected() {
+        if !inner.is_working() {
+            ws_connection.disconnect().await;
+            break;
+        }
+
         let result = tokio::time::timeout(disconnect_timeout, read_stream.next()).await;
         if result.is_err() {
             println!("read_loop. Timeout. Disconnecting... Err");
@@ -265,26 +281,26 @@ async fn read_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
 
 async fn ping_loop(
     ws_connection: &Arc<WsConnection>,
-    ping_interval: Duration,
-    disconnect_timeout: Duration,
+    inner: Arc<WebSocketInner>,
     ping_message: Message,
 ) {
     while ws_connection.is_connected() {
-        tokio::time::sleep(ping_interval).await;
+        tokio::time::sleep(inner.ping_interval).await;
 
         let now = DateTimeAsMicroseconds::now();
         if now
             .duration_since(ws_connection.get_last_read_time())
             .as_positive_or_zero()
-            > disconnect_timeout
+            > inner.disconnect_timeout
         {
-            ws_connection.disconnect().await;
             println!("Ping loop. Disconnecting. Timeout");
             break;
         }
 
         ws_connection.send_message(ping_message.clone()).await;
     }
+
+    ws_connection.disconnect().await;
 }
 
 fn generate_websocket_key() -> String {

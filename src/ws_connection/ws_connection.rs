@@ -11,7 +11,7 @@ use super::WsConnectionSingleThreaded;
 
 pub struct WsConnection {
     single_threaded: Mutex<Option<WsConnectionSingleThreaded>>,
-    is_conencted: AtomicBool,
+    is_connected: AtomicBool,
     last_read_time: AtomicDateTimeAsMicroseconds,
 }
 
@@ -27,13 +27,13 @@ impl WsConnection {
                 stream,
                 id,
             ))),
-            is_conencted: AtomicBool::new(true),
+            is_connected: AtomicBool::new(true),
             last_read_time: AtomicDateTimeAsMicroseconds::now(),
         }
     }
 
     pub fn is_connected(&self) -> bool {
-        self.is_conencted.load(std::sync::atomic::Ordering::Relaxed)
+        self.is_connected.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn update_last_read_time(&self, now: DateTimeAsMicroseconds) {
@@ -65,7 +65,7 @@ impl WsConnection {
     async fn process_disconnect(&self, single_threaded: &mut Option<WsConnectionSingleThreaded>) {
         if let Some(single_threaded) = single_threaded.as_mut() {
             single_threaded.disconnect().await;
-            self.is_conencted
+            self.is_connected
                 .store(false, std::sync::atomic::Ordering::SeqCst);
         }
 
