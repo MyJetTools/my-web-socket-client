@@ -12,17 +12,17 @@ use crate::WsError;
 pub async fn connect_to_tls_endpoint(
     url: &str,
 ) -> Result<(SendRequest<Full<Bytes>>, String), WsError> {
-    use tokio_rustls::rustls::pki_types::ServerName;
+    use my_tls::tokio_rustls::rustls::pki_types::ServerName;
 
     let host_port = super::extract_host_port(url).to_string();
 
     let tcp_stream = TcpStream::connect(host_port.as_str()).await?;
 
-    let config = tokio_rustls::rustls::ClientConfig::builder()
+    let config = my_tls::tokio_rustls::rustls::ClientConfig::builder()
         .with_root_certificates(ROOT_CERT_STORE.clone())
         .with_no_client_auth();
 
-    let connector = tokio_rustls::TlsConnector::from(Arc::new(config));
+    let connector = my_tls::tokio_rustls::TlsConnector::from(Arc::new(config));
 
     let host = super::extract_server_name(host_port.as_str());
     let domain = ServerName::try_from(host.to_string()).unwrap();

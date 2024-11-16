@@ -17,7 +17,6 @@ future-utils = "*"
 futures = "*"
 async-trait = "*"
 hyper = { version = "*", features = ["full"] }
-tokio-rustls = { version = "0.26.*", features = ["tls12"] }
 
 http-body-util = "*"
 hyper-util = { version = "*", features = ["tokio", "server", "http1", "http2"] }
