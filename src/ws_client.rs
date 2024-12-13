@@ -57,7 +57,7 @@ impl WebSocketClient {
 
     pub fn start<TWsCallback: WsCallback + Send + Sync + 'static>(
         &self,
-        ping_message: Message,
+        ping_message: Option<Message>,
         callback: Arc<TWsCallback>,
     ) {
         tokio::spawn(connection_loop(
@@ -83,7 +83,7 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
     endpoint: Arc<dyn WsClientSettings + Send + Sync + 'static>,
     logger: Arc<dyn Logger + Send + Sync + 'static>,
     ws_callback: Arc<TWsCallback>,
-    ping_message: Message,
+    ping_message: Option<Message>,
 ) {
     let mut connection_id = 0;
     while inner.is_working() {
@@ -190,7 +190,9 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
                     log_ctx.clone(),
                 ));
 
-                ping_loop(&ws_connection, inner.clone(), ping_message.clone()).await;
+                if let Some(ping_message) = ping_message.clone() {
+                    ping_loop(&ws_connection, inner.clone(), ping_message.clone()).await;
+                }
 
                 let callback_spawned = ws_callback.clone();
                 let ws_connection_spawned = ws_connection.clone();
