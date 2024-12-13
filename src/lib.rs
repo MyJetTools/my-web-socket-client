@@ -10,4 +10,7 @@ mod error;
 pub use error::*;
 
 pub extern crate hyper_tungstenite;
+
 mod connect;
+mod http_client_connector;
+mod https_client_connector;

@@ -1,32 +1,22 @@
-use std::{sync::atomic::AtomicBool, time::Duration};
+use std::sync::atomic::AtomicBool;
 
-use futures::stream::SplitSink;
-use hyper::upgrade::Upgraded;
-use hyper_tungstenite::{tungstenite::Message, WebSocketStream};
-use hyper_util::rt::TokioIo;
+use hyper_tungstenite::tungstenite::Message;
+
 use rust_extensions::date_time::{AtomicDateTimeAsMicroseconds, DateTimeAsMicroseconds};
 use tokio::sync::Mutex;
 
-use super::WsConnectionSingleThreaded;
+use super::MaybeTlsWebSocketStream;
 
 pub struct WsConnection {
-    single_threaded: Mutex<Option<WsConnectionSingleThreaded>>,
+    inner: Mutex<Option<MaybeTlsWebSocketStream>>,
     is_connected: AtomicBool,
     last_read_time: AtomicDateTimeAsMicroseconds,
 }
 
 impl WsConnection {
-    pub fn new(
-        id: i64,
-        send_timeout: Duration,
-        stream: SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>,
-    ) -> Self {
+    pub fn new(stream: MaybeTlsWebSocketStream) -> Self {
         Self {
-            single_threaded: Mutex::new(Some(WsConnectionSingleThreaded::new(
-                send_timeout,
-                stream,
-                id,
-            ))),
+            inner: Mutex::new(Some(stream)),
             is_connected: AtomicBool::new(true),
             last_read_time: AtomicDateTimeAsMicroseconds::now(),
         }
@@ -45,7 +35,7 @@ impl WsConnection {
     }
 
     pub async fn send_message(&self, message: Message) {
-        let mut write_access = self.single_threaded.lock().await;
+        let mut write_access = self.inner.lock().await;
 
         if let Some(single_threaded) = write_access.as_mut() {
             if !single_threaded.send(message).await {
@@ -55,16 +45,16 @@ impl WsConnection {
     }
 
     pub async fn disconnect(&self) {
-        let mut write_access = self.single_threaded.lock().await;
+        let mut write_access = self.inner.lock().await;
 
         if write_access.is_some() {
             self.process_disconnect(&mut write_access).await;
         }
     }
 
-    async fn process_disconnect(&self, single_threaded: &mut Option<WsConnectionSingleThreaded>) {
-        if let Some(single_threaded) = single_threaded.as_mut() {
-            single_threaded.disconnect().await;
+    async fn process_disconnect(&self, single_threaded: &mut Option<MaybeTlsWebSocketStream>) {
+        if let Some(inner) = single_threaded.as_mut() {
+            inner.disconnect().await;
             self.is_connected
                 .store(false, std::sync::atomic::Ordering::SeqCst);
         }
