@@ -105,7 +105,7 @@ impl WebSocketClient {
 async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
     name: String,
     inner: Arc<WebSocketInner>,
-    endpoint: Arc<dyn WsClientSettings + Send + Sync + 'static>,
+    settings: Arc<dyn WsClientSettings + Send + Sync + 'static>,
     ws_callback: Arc<TWsCallback>,
     ping_message: Option<Message>,
 ) {
@@ -114,7 +114,7 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
     let debug = inner.is_debug_mode();
     while inner.is_working() {
         tokio::time::sleep(inner.reconnect_timeout).await;
-        let url = endpoint.get_url().await;
+        let url = settings.get_url().await;
 
         let mut log_ctx = HashMap::new();
         log_ctx.insert("url".to_string(), url.clone());
@@ -180,6 +180,12 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
         request_builder.append_header("Connection", "Upgrade");
         request_builder.append_header("Sec-WebSocket-Key", web_socket_key.as_str());
         request_builder.append_header("Sec-WebSocket-Version", "13");
+
+        if let Some(headers) = settings.apply_headers_in_init().await {
+            for header in headers {
+                request_builder.append_header(header.0.as_str(), header.1.as_str());
+            }
+        }
 
         let http_request = request_builder.build();
         connection_id += 1;
@@ -274,126 +280,6 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
         tokio::spawn(async move {
             ws_callback.on_disconnected(ws_connection).await;
         });
-
-        /*
-        match super::connect::connect(url.as_str()).await {
-            Ok(send_request) => {
-                let (mut send_request, host_port) = send_request;
-                let body = http_body_util::Full::new(hyper::body::Bytes::from(vec![]));
-                let web_socket_key = generate_websocket_key();
-                let req = Request::get(url)
-                    .header("Host", host_port)
-                    .header("Upgrade", "websocket")
-                    .header("Connection", "Upgrade")
-                    .header("Sec-WebSocket-Key", web_socket_key)
-                    .header("Sec-WebSocket-Version", "13")
-                    .body(body)
-                    .unwrap();
-
-                let result = send_request.send_request(req).await;
-
-                let response = match result {
-                    Ok(response) => response,
-                    Err(err) => {
-                        logger.write_warning(
-                            "WebSocketConnectionLoop".to_string(),
-                            format!("Executing initial get request. Err: {:?}", err),
-                            Some(log_ctx),
-                        );
-
-                        continue;
-                    }
-                };
-
-                if response.status() != 101 {
-                    logger.write_warning(
-                        "WebSocketConnectionLoop".to_string(),
-                        format!("Initial get request. Status code: {:?}", response.status()),
-                        Some(log_ctx),
-                    );
-
-                    continue;
-                }
-
-                let result = hyper::upgrade::on(response).await;
-
-                let upgraded = match result {
-                    Ok(result) => result,
-                    Err(err) => {
-                        logger.write_warning(
-                            "WebSocketConnectionLoop".to_string(),
-                            format!("Upgrading to WebSocket. Err: {:?}", err),
-                            Some(log_ctx),
-                        );
-
-                        continue;
-                    }
-                };
-
-                connection_id += 1;
-                log_ctx.insert("connectionId".to_string(), connection_id.to_string());
-
-                let web_socket = WebSocketStream::from_raw_socket(
-                    TokioIo::new(upgraded),
-                    hyper_tungstenite::tungstenite::protocol::Role::Client,
-                    None,
-                )
-                .await;
-
-                let (write, read) = futures::StreamExt::split(web_socket);
-
-                let ws_connection =
-                    Arc::new(WsConnection::new(connection_id, inner.send_timeout, write));
-
-                let callback_spawned = ws_callback.clone();
-                let ws_connection_spawned = ws_connection.clone();
-                let on_connected_result = tokio::spawn(async move {
-                    callback_spawned.on_connected(ws_connection_spawned).await;
-                })
-                .await;
-
-                if on_connected_result.is_err() {
-                    logger.write_error(
-                        "WebSocketConnectionLoop".to_string(),
-                        format!("Panic during on_connected"),
-                        Some(log_ctx),
-                    );
-                    ws_connection.disconnect().await;
-                    continue;
-                }
-
-                tokio::spawn(read_loop(
-                    read,
-                    ws_callback.clone(),
-                    inner.clone(),
-                    ws_connection.clone(),
-                    inner.disconnect_timeout,
-                    logger.clone(),
-                    log_ctx.clone(),
-                ));
-
-                if let Some(ping_message) = ping_message.clone() {
-                    ping_loop(&ws_connection, inner.clone(), ping_message.clone()).await;
-                }
-
-                let callback_spawned = ws_callback.clone();
-                let ws_connection_spawned = ws_connection.clone();
-                let _ = tokio::spawn(async move {
-                    callback_spawned
-                        .on_disconnected(ws_connection_spawned)
-                        .await;
-                })
-                .await;
-            }
-            Err(err) => {
-                logger.write_warning(
-                    "WebSocketConnectionLoop".to_string(),
-                    format!("Can not connect. Err: {:?}", err),
-                    Some(log_ctx),
-                );
-            }
-        }
-         */
     }
 }
 
