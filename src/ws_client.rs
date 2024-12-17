@@ -122,7 +122,7 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
         let before_connect_result = tokio::spawn(async move {
             ws_callback_spawned
                 .before_start_ws_connect(url_spawned)
-                .await;
+                .await
         })
         .await;
 
@@ -132,6 +132,18 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
             );
             continue;
         }
+
+        let before_connect_result = before_connect_result.unwrap();
+
+        let ws_connection_apply_data = match before_connect_result {
+            Ok(ws_connection_apply_data) => ws_connection_apply_data,
+            Err(err) => {
+                println!(
+                    "Error on before_start_connect ws_event. Skipping web socket connect iteration..."
+                );
+                continue;
+            }
+        };
 
         let mut log_ctx = HashMap::new();
         log_ctx.insert("url".to_string(), url.clone());

@@ -44,6 +44,19 @@ impl WsConnection {
         }
     }
 
+    pub async fn send_messages(&self, messages: impl Iterator<Item = Message>) {
+        let mut write_access = self.inner.lock().await;
+
+        if let Some(single_threaded) = write_access.as_mut() {
+            for message in messages {
+                if !single_threaded.send(message).await {
+                    self.process_disconnect(&mut write_access).await;
+                    break;
+                }
+            }
+        }
+    }
+
     pub async fn disconnect(&self) {
         let mut write_access = self.inner.lock().await;
 
