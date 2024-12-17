@@ -109,6 +109,8 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
     ws_callback: Arc<TWsCallback>,
     ping_message: Option<Message>,
 ) {
+    const PROCESS_NAME: &'static str = "WebSocketConnectionLoop";
+
     let mut connection_id = 0;
 
     let debug = inner.is_debug_mode();
@@ -126,10 +128,17 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
         })
         .await;
 
-        if before_connect_result.is_err() {
-            println!(
-                "Error on before_start_connect ws_event. Skipping web socket connect iteration..."
+        if let Err(err) = &before_connect_result {
+            let mut ctx = HashMap::new();
+            ctx.insert("url".to_string(), url.clone());
+            ctx.insert("name".to_string(), url.clone());
+
+            inner.logger.write_fatal_error(
+                PROCESS_NAME.to_string(),
+                format!("{:?}", err),
+                Some(ctx),
             );
+
             continue;
         }
 
@@ -138,9 +147,16 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
         let mut ws_connection_apply_data = match before_connect_result {
             Ok(ws_connection_apply_data) => ws_connection_apply_data,
             Err(err) => {
-                println!(
-                    "Error '{}' on before_start_connect ws_event. Skipping web socket connect iteration...",err
+                let mut ctx = HashMap::new();
+                ctx.insert("url".to_string(), url.clone());
+                ctx.insert("name".to_string(), url.clone());
+
+                inner.logger.write_fatal_error(
+                    PROCESS_NAME.to_string(),
+                    format!("Error: '{}'", err),
+                    Some(ctx),
                 );
+
                 continue;
             }
         };
@@ -153,7 +169,7 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
 
         if let Err(err) = &remote_endpoint {
             inner.logger.write_fatal_error(
-                "WebSocketConnectionLoop".to_string(),
+                PROCESS_NAME.to_string(),
                 format!(
                     "Invalid url to establish websocket connection. Err: {:?}",
                     err
@@ -170,7 +186,7 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
             Some(scheme) => scheme,
             None => {
                 inner.logger.write_fatal_error(
-                    "WebSocketConnectionLoop".to_string(),
+                    PROCESS_NAME.to_string(),
                     format!("Invalid url to establish websocket connection. Scheme is missing"),
                     Some(log_ctx),
                 );
@@ -187,7 +203,7 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
             remote_endpoint::Scheme::Wss => true,
             remote_endpoint::Scheme::UnixSocket => {
                 inner.logger.write_fatal_error(
-                    "WebSocketConnectionLoop".to_string(),
+                    PROCESS_NAME.to_string(),
                     format!("Invalid url to establish websocket connection. Unix socket is not supported"),
                     Some(log_ctx),
                 );
@@ -258,11 +274,9 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
         let (ws_connection, read, disconnection) = match result {
             Ok(result) => result,
             Err(err) => {
-                inner.logger.write_fatal_error(
-                    "WebSocketConnectionLoop".to_string(),
-                    err,
-                    Some(log_ctx),
-                );
+                inner
+                    .logger
+                    .write_fatal_error(PROCESS_NAME.to_string(), err, Some(log_ctx));
                 tokio::time::sleep(inner.reconnect_timeout).await;
                 continue;
             }
