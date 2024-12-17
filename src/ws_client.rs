@@ -135,11 +135,11 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
 
         let before_connect_result = before_connect_result.unwrap();
 
-        let ws_connection_apply_data = match before_connect_result {
+        let mut ws_connection_apply_data = match before_connect_result {
             Ok(ws_connection_apply_data) => ws_connection_apply_data,
             Err(err) => {
                 println!(
-                    "Error on before_start_connect ws_event. Skipping web socket connect iteration..."
+                    "Error '{}' on before_start_connect ws_event. Skipping web socket connect iteration...",err
                 );
                 continue;
             }
@@ -198,10 +198,14 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
 
         let web_socket_key = generate_websocket_key();
 
-        let mut request_builder = my_http_client::http1::MyHttpRequestBuilder::new(
-            Method::GET,
-            remote_endpoint.get_http_path_and_query().unwrap_or("/"),
-        );
+        let mut request_builder = if let Some(url_builder) = ws_connection_apply_data.url.take() {
+            my_http_client::http1::MyHttpRequestBuilder::new(Method::GET, url_builder.as_str())
+        } else {
+            my_http_client::http1::MyHttpRequestBuilder::new(
+                Method::GET,
+                remote_endpoint.get_http_path_and_query().unwrap_or("/"),
+            )
+        };
 
         request_builder.append_header("Host", remote_endpoint.get_host_port(None).as_str());
 
@@ -210,7 +214,7 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
         request_builder.append_header("Sec-WebSocket-Key", web_socket_key.as_str());
         request_builder.append_header("Sec-WebSocket-Version", "13");
 
-        if let Some(headers) = settings.apply_headers_in_init().await {
+        if let Some(headers) = ws_connection_apply_data.headers.take() {
             for header in headers {
                 request_builder.append_header(header.0.as_str(), header.1.as_str());
             }

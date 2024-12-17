@@ -1,13 +1,14 @@
 use std::sync::Arc;
 
 use hyper_tungstenite::tungstenite::Message;
+use url_utils::UrlBuilder;
 
 use super::WsConnection;
 
 #[derive(Default)]
 pub struct StartConnectionResult {
     pub headers: Option<Vec<(String, String)>>,
-    pub query_string: Option<Vec<(String, Option<String>)>>,
+    pub url: Option<UrlBuilder>,
 }
 
 #[async_trait::async_trait]
