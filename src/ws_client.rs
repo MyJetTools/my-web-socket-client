@@ -116,6 +116,23 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
         tokio::time::sleep(inner.reconnect_timeout).await;
         let url = settings.get_url().await;
 
+        let url_spawned = url.clone();
+
+        let ws_callback_spawned = ws_callback.clone();
+        let before_connect_result = tokio::spawn(async move {
+            ws_callback_spawned
+                .before_start_ws_connect(url_spawned)
+                .await;
+        })
+        .await;
+
+        if before_connect_result.is_err() {
+            println!(
+                "Error on before_start_connect ws_event. Skipping web socket connect iteration..."
+            );
+            continue;
+        }
+
         let mut log_ctx = HashMap::new();
         log_ctx.insert("url".to_string(), url.clone());
         log_ctx.insert("name".to_string(), name.clone());
@@ -237,11 +254,18 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
 
         let ws_callback_spawned = ws_callback.clone();
         let ws_connection_spawned = ws_connection.clone();
-        tokio::spawn(async move {
+        let on_connected_result = tokio::spawn(async move {
             ws_callback_spawned
                 .on_connected(ws_connection_spawned)
                 .await;
-        });
+        })
+        .await;
+
+        if on_connected_result.is_err() {
+            println!("Error on on_connected ws_event. Disconnecting...");
+            ws_connection.disconnect().await;
+            continue;
+        }
 
         if let Some(ping_message) = ping_message.clone() {
             tokio::spawn(ping_loop(
