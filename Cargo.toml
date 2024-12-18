@@ -16,6 +16,7 @@ hyper-tungstenite = { version = "*" }
 future-utils = "*"
 futures = "*"
 async-trait = "*"
+http-body-util = { version = "*" }
 
 bytes = "*"
 rand = "*"

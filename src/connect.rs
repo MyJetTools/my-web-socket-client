@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use futures::stream::{SplitSink, SplitStream};
+use http_body_util::BodyExt;
 use hyper_tungstenite::{tungstenite::Message, WebSocketStream};
 use my_http_client::{http1::*, MyHttpClientConnector, MyHttpClientDisconnect};
 use my_tls::tokio_rustls::client::TlsStream;
@@ -41,9 +42,15 @@ pub async fn connect_to_remote_endpoint<
 
     match response {
         MyHttpResponse::Response(response) => {
+            let (parts, body) = response.into_parts();
+
+            let body = body.collect().await.unwrap();
+            let bytes = body.to_bytes();
+            let bytes = bytes.to_vec();
             return Err(format!(
-                "Expecting websocket upgrade response. But got response: {:?}",
-                response
+                "Expecting websocket upgrade response. But got response: {:?}. Body: {:?}",
+                parts,
+                String::from_utf8(bytes)
             ));
         }
         MyHttpResponse::WebSocketUpgrade {

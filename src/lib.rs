@@ -10,6 +10,7 @@ mod error;
 pub use error::*;
 
 pub extern crate hyper_tungstenite;
+pub extern crate my_tls;
 pub extern crate url_utils;
 
 mod connect;

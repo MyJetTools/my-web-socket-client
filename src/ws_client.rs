@@ -182,6 +182,8 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
 
         let remote_endpoint = remote_endpoint.unwrap();
 
+        println!("Ws remote endpoint is: {}", remote_endpoint.as_str());
+
         let scheme = match remote_endpoint.get_scheme() {
             Some(scheme) => scheme,
             None => {
@@ -215,6 +217,7 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
         let web_socket_key = generate_websocket_key();
 
         let mut request_builder = if let Some(url_builder) = ws_connection_apply_data.url.take() {
+            println!("Build url: {}", url_builder.as_str());
             my_http_client::http1::MyHttpRequestBuilder::new(Method::GET, url_builder.as_str())
         } else {
             my_http_client::http1::MyHttpRequestBuilder::new(
@@ -223,7 +226,7 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
             )
         };
 
-        request_builder.append_header("Host", remote_endpoint.get_host_port(None).as_str());
+        request_builder.append_header("Host", remote_endpoint.get_host_port().as_str());
 
         request_builder.append_header("Upgrade", "websocket");
         request_builder.append_header("Connection", "Upgrade");
@@ -232,6 +235,11 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
 
         if let Some(headers) = ws_connection_apply_data.headers.take() {
             for header in headers {
+                println!(
+                    "Extra Header: {} = {}",
+                    header.0.as_str(),
+                    header.1.as_str()
+                );
                 request_builder.append_header(header.0.as_str(), header.1.as_str());
             }
         }
@@ -240,20 +248,6 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
         connection_id += 1;
 
         let result = if is_https {
-            let result = connect_to_remote_endpoint(
-                &inner,
-                http_request,
-                HttpClientConnector {
-                    remote_endpoint,
-                    debug,
-                },
-                |stream| {
-                    MaybeTlsWebSocketStream::new_no_tls(connection_id, stream, inner.send_timeout)
-                },
-            )
-            .await;
-            result.map(|itm| (itm.0, MaybeTlsReadStream::NoTls(itm.1), itm.2))
-        } else {
             let result = connect_to_remote_endpoint(
                 &inner,
                 http_request,
@@ -269,6 +263,20 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
             .await;
 
             result.map(|itm| (itm.0, MaybeTlsReadStream::Tls(itm.1), itm.2))
+        } else {
+            let result = connect_to_remote_endpoint(
+                &inner,
+                http_request,
+                HttpClientConnector {
+                    remote_endpoint,
+                    debug,
+                },
+                |stream| {
+                    MaybeTlsWebSocketStream::new_no_tls(connection_id, stream, inner.send_timeout)
+                },
+            )
+            .await;
+            result.map(|itm| (itm.0, MaybeTlsReadStream::NoTls(itm.1), itm.2))
         };
 
         let (ws_connection, read, disconnection) = match result {
