@@ -1,13 +1,14 @@
 use std::sync::Arc;
 
 use hyper_tungstenite::tungstenite::Message;
+use rust_extensions::StrOrString;
 use url_utils::UrlBuilder;
 
 use super::WsConnection;
 
 #[derive(Default)]
 pub struct StartWsConnectionDataToApply {
-    pub headers: Option<Vec<(String, String)>>,
+    pub headers: Option<Vec<(StrOrString<'static>, StrOrString<'static>)>>,
     pub url: Option<UrlBuilder>,
 }
 
