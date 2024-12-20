@@ -218,20 +218,16 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
 
         let mut request_builder = if let Some(url_builder) = ws_connection_apply_data.url.take() {
             println!("Build url: {}", url_builder.as_str());
-            my_http_client::http1::MyHttpRequestBuilder::new(Method::GET, url_builder.as_str())
+            my_http_client::http1::MyHttpRequestBuilder::new(
+                Method::GET,
+                url_builder.get_path_and_query(),
+            )
         } else {
             my_http_client::http1::MyHttpRequestBuilder::new(
                 Method::GET,
                 remote_endpoint.get_http_path_and_query().unwrap_or("/"),
             )
         };
-
-        request_builder.append_header("Host", remote_endpoint.get_host_port().as_str());
-
-        request_builder.append_header("Upgrade", "websocket");
-        request_builder.append_header("Connection", "Upgrade");
-        request_builder.append_header("Sec-WebSocket-Key", web_socket_key.as_str());
-        request_builder.append_header("Sec-WebSocket-Version", "13");
 
         if let Some(headers) = ws_connection_apply_data.headers.take() {
             for header in headers {
@@ -244,7 +240,23 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
             }
         }
 
+        request_builder.append_header("Host", remote_endpoint.get_host());
+
+        request_builder.append_header("Upgrade", "websocket");
+        request_builder.append_header("Connection", "Upgrade");
+        request_builder.append_header("Sec-WebSocket-Key", web_socket_key.as_str());
+        request_builder.append_header("Sec-WebSocket-Version", "13");
+        request_builder.append_header(
+            "Sec-WebSocket-Extensions",
+            "permessage-deflate; client_max_window_bits",
+        );
+
         let http_request = request_builder.build();
+
+        println!("-------");
+        println!("{:?}", std::str::from_utf8(http_request.headers.as_slice()));
+        println!("-------");
+
         connection_id += 1;
 
         let result = if is_https {
