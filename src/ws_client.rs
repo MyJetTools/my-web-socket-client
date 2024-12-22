@@ -46,21 +46,21 @@ impl WebSocketInner {
 
 pub struct WebSocketClient {
     pub inner: Arc<WebSocketInner>,
-    name: String,
+    name: Arc<StrOrString<'static>>,
     pub logger: Arc<dyn Logger + Send + Sync + 'static>,
     pub settings: Arc<dyn WsClientSettings + Send + Sync + 'static>,
 }
 
 impl WebSocketClient {
     pub fn new(
-        name: impl Into<StrOrString<'static>>,
+        name: Arc<StrOrString<'static>>,
         settings: Arc<dyn WsClientSettings + Send + Sync + 'static>,
         logger: Arc<dyn Logger + Send + Sync + 'static>,
     ) -> Self {
         Self {
             settings,
             logger: logger.clone(),
-            name: name.into().to_string(),
+            name: name.into(),
             inner: WebSocketInner {
                 logger,
                 reconnect_timeout: Duration::from_secs(3),
@@ -103,7 +103,7 @@ impl WebSocketClient {
 }
 
 async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
-    name: String,
+    name: Arc<StrOrString<'static>>,
     inner: Arc<WebSocketInner>,
     settings: Arc<dyn WsClientSettings + Send + Sync + 'static>,
     ws_callback: Arc<TWsCallback>,
@@ -163,7 +163,7 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
 
         let mut log_ctx = HashMap::new();
         log_ctx.insert("url".to_string(), url.clone());
-        log_ctx.insert("name".to_string(), name.clone());
+        log_ctx.insert("name".to_string(), name.as_str().to_string());
 
         let remote_endpoint = RemoteEndpointOwned::try_parse(url);
 
@@ -240,14 +240,14 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
             }
         }
 
-        request_builder.append_header("Host", remote_endpoint.get_host());
+        request_builder.append_header("host", remote_endpoint.get_host());
 
-        request_builder.append_header("Upgrade", "websocket");
-        request_builder.append_header("Connection", "Upgrade");
-        request_builder.append_header("Sec-WebSocket-Key", web_socket_key.as_str());
-        request_builder.append_header("Sec-WebSocket-Version", "13");
+        request_builder.append_header("upgrade", "websocket");
+        request_builder.append_header("connection", "Upgrade");
+        request_builder.append_header("sec-websocket-key", web_socket_key.as_str());
+        request_builder.append_header("sec-websocket-version", "13");
         request_builder.append_header(
-            "Sec-WebSocket-Extensions",
+            "sec-websocket-extensions",
             "permessage-deflate; client_max_window_bits",
         );
 
