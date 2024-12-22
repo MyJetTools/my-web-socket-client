@@ -116,7 +116,7 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
     let debug = inner.is_debug_mode();
     while inner.is_working() {
         tokio::time::sleep(inner.reconnect_timeout).await;
-        let url = settings.get_url().await;
+        let url = settings.get_url(name.as_str()).await;
 
         let url_spawned = url.clone();
 
