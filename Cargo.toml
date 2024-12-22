@@ -10,6 +10,10 @@ rust-extensions = { tag = "0.1.5", git = "https://github.com/MyJetTools/rust-ext
     "base64",
 ] }
 my-tls = { tag = "0.1.5", git = "https://github.com/MyJetTools/my-tls.git" }
+
+url-utils = { tag = "0.1.4", git = "https://github.com/MyJetTools/url-utils.git" }
+my-http-client = { tag = "0.1.2", git = "https://github.com/MyJetTools/my-http-client.git" }
+
 tokio = { version = "*", features = ["full"] }
 hyper-tungstenite = { version = "*" }
 
@@ -22,5 +26,3 @@ bytes = "*"
 rand = "*"
 
 http = "*"
-url-utils = { tag = "0.1.4", git = "https://github.com/MyJetTools/url-utils.git" }
-my-http-client = { path = "../../my-http-client" }
