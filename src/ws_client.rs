@@ -217,10 +217,10 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
         let web_socket_key = generate_websocket_key();
 
         let mut request_builder = if let Some(url_builder) = ws_connection_apply_data.url.take() {
-            println!("Build url: {}", url_builder.as_str());
+            println!("Build url: {}", url_builder.to_string());
             my_http_client::http1::MyHttpRequestBuilder::new(
                 Method::GET,
-                url_builder.get_path_and_query(),
+                url_builder.get_path_and_query().as_str(),
             )
         } else {
             my_http_client::http1::MyHttpRequestBuilder::new(
