@@ -32,7 +32,10 @@ impl MyHttpClientConnector<TlsStream<TcpStream>> for HttpsClientConnector {
         println!("Connecting to '{}'", host_port.as_str());
 
         let tcp_stream = match TcpStream::connect(host_port.as_str()).await {
-            Ok(tcp_stream) => tcp_stream,
+            Ok(tcp_stream) => {
+                println!("Connected to '{}'", host_port.as_str());
+                tcp_stream
+            }
             Err(err) => {
                 return Err(
                     my_http_client::MyHttpClientError::CanNotConnectToRemoteHost(format!(
