@@ -246,10 +246,10 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
         request_builder.append_header("connection", "Upgrade");
         request_builder.append_header("sec-websocket-key", web_socket_key.as_str());
         request_builder.append_header("sec-websocket-version", "13");
-        request_builder.append_header(
-            "sec-websocket-extensions",
-            "permessage-deflate; client_max_window_bits",
-        );
+        //request_builder.append_header(
+        //    "sec-websocket-extensions",
+        //    "permessage-deflate; client_max_window_bits",
+        //);
 
         let http_request = request_builder.build();
 
