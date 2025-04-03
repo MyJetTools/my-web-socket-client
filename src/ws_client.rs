@@ -453,7 +453,7 @@ async fn ping_loop(
 fn generate_websocket_key() -> String {
     use rand::Rng;
     use rust_extensions::base64::IntoBase64;
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut key = [0u8; 16];
     rng.fill(&mut key);
     key.as_ref().into_base64()
