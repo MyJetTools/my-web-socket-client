@@ -118,6 +118,16 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
         tokio::time::sleep(inner.reconnect_timeout).await;
         let url = settings.get_url(name.as_str()).await;
 
+        if url.is_none() {
+            println!(
+                "Websocket {} does not have settings url. Skipping connection",
+                name.as_str()
+            );
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            continue;
+        }
+
+        let url = url.unwrap();
         let url_spawned = url.clone();
 
         let ws_callback_spawned = ws_callback.clone();
