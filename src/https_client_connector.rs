@@ -53,9 +53,14 @@ impl MyHttpClientConnector<TlsStream<TcpStream>> for HttpsClientConnector {
             );
         }
 
-        let config = my_tls::tokio_rustls::rustls::ClientConfig::builder()
+        let mut config = my_tls::tokio_rustls::rustls::ClientConfig::builder()
             .with_root_certificates(my_tls::ROOT_CERT_STORE.clone())
             .with_no_client_auth();
+        // Force HTTP/1.1 — without an explicit ALPN advertisement the server
+        // (e.g. Binance fstream) may pick h2, into which our HTTP/1 client
+        // can't speak: the connection stays open silently and no frames
+        // ever arrive after the TLS handshake.
+        config.alpn_protocols = vec![b"http/1.1".to_vec()];
 
         let connector = my_tls::tokio_rustls::TlsConnector::from(Arc::new(config));
         let domain = if let Some(domain_name) = self.domain_name.as_ref() {
