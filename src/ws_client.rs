@@ -145,11 +145,21 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
 ) {
     const PROCESS_NAME: &'static str = "WebSocketConnectionLoop";
 
+    // If the previous connection lived at least this long, we treat the disconnect as
+    // "healthy connection got dropped" (e.g. Binance fstream RST'ing long-lived sockets)
+    // and skip the reconnect delay so we don't lose data for no reason.
+    const RECONNECT_DELAY_SKIP_THRESHOLD: Duration = Duration::from_secs(30);
+
     let mut connection_id = 0;
+    let mut skip_reconnect_delay = false;
 
     let debug = inner.is_debug_mode();
     while inner.is_working() {
-        tokio::time::sleep(inner.reconnect_timeout).await;
+        if skip_reconnect_delay {
+            skip_reconnect_delay = false;
+        } else {
+            tokio::time::sleep(inner.reconnect_timeout).await;
+        }
         let url = settings.get_url(name.as_str()).await;
 
         if url.is_none() {
@@ -346,6 +356,8 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
             }
         };
 
+        let connected_at = DateTimeAsMicroseconds::now();
+
         let ws_callback_spawned = ws_callback.clone();
         let ws_connection_spawned = ws_connection.clone();
         let on_connected_result = tokio::spawn(async move {
@@ -392,6 +404,11 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
                 .await;
             }
         }
+
+        let lived = DateTimeAsMicroseconds::now()
+            .duration_since(connected_at)
+            .as_positive_or_zero();
+        skip_reconnect_delay = lived >= RECONNECT_DELAY_SKIP_THRESHOLD;
 
         let ws_callback = ws_callback.clone();
 
