@@ -81,6 +81,40 @@ impl WebSocketClient {
         self
     }
 
+    fn inner_mut(&mut self) -> &mut WebSocketInner {
+        Arc::get_mut(&mut self.inner)
+            .expect("WebSocketClient::with_* timeouts must be configured before start()")
+    }
+
+    /// Overrides the wait time before each reconnection attempt (default: 3s).
+    /// Must be called before `start()`.
+    pub fn with_reconnect_timeout(mut self, timeout: Duration) -> Self {
+        self.inner_mut().reconnect_timeout = timeout;
+        self
+    }
+
+    /// Overrides how often the heartbeat message is sent (default: 3s).
+    /// Must be called before `start()`.
+    pub fn with_ping_interval(mut self, interval: Duration) -> Self {
+        self.inner_mut().ping_interval = interval;
+        self
+    }
+
+    /// Overrides the period after which a silent connection (no frames received,
+    /// including pongs) is dropped and re-established (default: 9s).
+    /// Must be called before `start()`.
+    pub fn with_disconnect_timeout(mut self, timeout: Duration) -> Self {
+        self.inner_mut().disconnect_timeout = timeout;
+        self
+    }
+
+    /// Overrides the max time to wait for a send to complete (default: 30s).
+    /// Must be called before `start()`.
+    pub fn with_send_timeout(mut self, timeout: Duration) -> Self {
+        self.inner_mut().send_timeout = timeout;
+        self
+    }
+
     pub fn start<TWsCallback: WsCallback + Send + Sync + 'static>(
         &self,
         ping_message: Option<Message>,
