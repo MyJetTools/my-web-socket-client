@@ -29,6 +29,10 @@ pub struct WebSocketInner {
     pub ping_interval: Duration,
     pub disconnect_timeout: Duration,
     pub send_timeout: Duration,
+    // If the previous connection lived at least this long, the disconnect is treated as a
+    // "healthy connection got dropped" (e.g. Binance fstream RST'ing long-lived sockets) and
+    // the reconnect delay is skipped so we don't lose data for no reason.
+    pub reconnect_delay_skip_threshold: Duration,
     pub working: AtomicBool,
     pub debug_model: AtomicBool,
     pub logger: Arc<dyn Logger + Send + Sync + 'static>,
@@ -67,6 +71,7 @@ impl WebSocketClient {
                 ping_interval: Duration::from_secs(3),
                 disconnect_timeout: Duration::from_secs(9),
                 send_timeout: Duration::from_secs(30),
+                reconnect_delay_skip_threshold: Duration::from_secs(10),
                 working: AtomicBool::new(true),
                 debug_model: AtomicBool::new(false),
             }
@@ -115,6 +120,15 @@ impl WebSocketClient {
         self
     }
 
+    /// Overrides how long a connection must have lived for its drop to be treated as a
+    /// "healthy" disconnect — in that case the reconnect delay is skipped (default: 10s).
+    /// Failed connection attempts always wait the reconnect delay regardless of this value.
+    /// Must be called before `start()`.
+    pub fn with_reconnect_delay_skip_threshold(mut self, threshold: Duration) -> Self {
+        self.inner_mut().reconnect_delay_skip_threshold = threshold;
+        self
+    }
+
     pub fn start<TWsCallback: WsCallback + Send + Sync + 'static>(
         &self,
         ping_message: Option<Message>,
@@ -145,21 +159,10 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
 ) {
     const PROCESS_NAME: &'static str = "WebSocketConnectionLoop";
 
-    // If the previous connection lived at least this long, we treat the disconnect as
-    // "healthy connection got dropped" (e.g. Binance fstream RST'ing long-lived sockets)
-    // and skip the reconnect delay so we don't lose data for no reason.
-    const RECONNECT_DELAY_SKIP_THRESHOLD: Duration = Duration::from_secs(30);
-
     let mut connection_id = 0;
-    let mut skip_reconnect_delay = false;
 
     let debug = inner.is_debug_mode();
     while inner.is_working() {
-        if skip_reconnect_delay {
-            skip_reconnect_delay = false;
-        } else {
-            tokio::time::sleep(inner.reconnect_timeout).await;
-        }
         let url = settings.get_url(name.as_str()).await;
 
         if url.is_none() {
@@ -185,7 +188,7 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
         if let Err(err) = &before_connect_result {
             let mut ctx = HashMap::new();
             ctx.insert("url".to_string(), url.clone());
-            ctx.insert("name".to_string(), url.clone());
+            ctx.insert("name".to_string(), name.as_str().to_string());
 
             inner.logger.write_fatal_error(
                 PROCESS_NAME.to_string(),
@@ -193,6 +196,7 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
                 Some(ctx),
             );
 
+            tokio::time::sleep(inner.reconnect_timeout).await;
             continue;
         }
 
@@ -203,7 +207,7 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
             Err(err) => {
                 let mut ctx = HashMap::new();
                 ctx.insert("url".to_string(), url.clone());
-                ctx.insert("name".to_string(), url.clone());
+                ctx.insert("name".to_string(), name.as_str().to_string());
 
                 inner.logger.write_fatal_error(
                     PROCESS_NAME.to_string(),
@@ -211,6 +215,7 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
                     Some(ctx),
                 );
 
+                tokio::time::sleep(inner.reconnect_timeout).await;
                 continue;
             }
         };
@@ -219,7 +224,7 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
         log_ctx.insert("url".to_string(), url.clone());
         log_ctx.insert("name".to_string(), name.as_str().to_string());
 
-        let remote_endpoint = RemoteEndpointOwned::try_parse(url);
+        let remote_endpoint = RemoteEndpointOwned::try_parse(url.clone());
 
         if let Err(err) = &remote_endpoint {
             inner.logger.write_fatal_error(
@@ -285,11 +290,13 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
 
         if let Some(headers) = ws_connection_apply_data.headers.take() {
             for header in headers {
-                println!(
-                    "Extra Header: {} = {}",
-                    header.0.as_str(),
-                    header.1.as_str()
-                );
+                if debug {
+                    println!(
+                        "Extra Header: {} = {}",
+                        header.0.as_str(),
+                        header.1.as_str()
+                    );
+                }
                 request_builder.append_header(header.0.as_str(), header.1.as_str());
             }
         }
@@ -307,9 +314,11 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
 
         let http_request = request_builder.build();
 
-        println!("-------");
-        println!("{:?}", std::str::from_utf8(http_request.headers.as_slice()));
-        println!("-------");
+        if debug {
+            println!("-------");
+            println!("{:?}", std::str::from_utf8(http_request.headers.as_slice()));
+            println!("-------");
+        }
 
         connection_id += 1;
 
@@ -358,6 +367,8 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
 
         let connected_at = DateTimeAsMicroseconds::now();
 
+        println!("Connected to ws {}", url);
+
         let ws_callback_spawned = ws_callback.clone();
         let ws_connection_spawned = ws_connection.clone();
         let on_connected_result = tokio::spawn(async move {
@@ -370,6 +381,7 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
         if on_connected_result.is_err() {
             println!("Error on on_connected ws_event. Disconnecting...");
             ws_connection.disconnect().await;
+            tokio::time::sleep(inner.reconnect_timeout).await;
             continue;
         }
 
@@ -408,13 +420,19 @@ async fn connection_loop<TWsCallback: WsCallback + Send + Sync + 'static>(
         let lived = DateTimeAsMicroseconds::now()
             .duration_since(connected_at)
             .as_positive_or_zero();
-        skip_reconnect_delay = lived >= RECONNECT_DELAY_SKIP_THRESHOLD;
 
         let ws_callback = ws_callback.clone();
 
         tokio::spawn(async move {
             ws_callback.on_disconnected(ws_connection).await;
         });
+
+        // A long-lived connection that dropped is treated as a healthy disconnect (e.g. the
+        // server RST'ing a long-lived socket) and is retried immediately. A short-lived one
+        // means something went wrong, so back off before the next attempt.
+        if lived < inner.reconnect_delay_skip_threshold {
+            tokio::time::sleep(inner.reconnect_timeout).await;
+        }
     }
 }
 
@@ -512,7 +530,7 @@ async fn ping_loop(
 }
 
 fn generate_websocket_key() -> String {
-    use rand::RngExt;
+    use rand::Rng;
     use rust_extensions::base64::IntoBase64;
     let mut rng = rand::rng();
     let mut key = [0u8; 16];
