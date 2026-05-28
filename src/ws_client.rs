@@ -530,7 +530,7 @@ async fn ping_loop(
 }
 
 fn generate_websocket_key() -> String {
-    use rand::Rng;
+    use rand::RngExt;
     use rust_extensions::base64::IntoBase64;
     let mut rng = rand::rng();
     let mut key = [0u8; 16];
