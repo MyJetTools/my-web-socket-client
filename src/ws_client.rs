@@ -523,6 +523,7 @@ async fn ping_loop(
             break;
         }
 
+        ws_connection.update_last_ping_sent(now);
         ws_connection.send_message(ping_message.clone()).await;
     }
     disconnection.disconnect();

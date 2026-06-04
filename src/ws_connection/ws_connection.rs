@@ -11,6 +11,7 @@ pub struct WsConnection {
     inner: Mutex<Option<MaybeTlsWebSocketStream>>,
     is_connected: AtomicBool,
     last_read_time: AtomicDateTimeAsMicroseconds,
+    last_ping_sent: AtomicDateTimeAsMicroseconds,
 }
 
 impl WsConnection {
@@ -19,6 +20,7 @@ impl WsConnection {
             inner: Mutex::new(Some(stream)),
             is_connected: AtomicBool::new(true),
             last_read_time: AtomicDateTimeAsMicroseconds::now(),
+            last_ping_sent: AtomicDateTimeAsMicroseconds::now(),
         }
     }
 
@@ -32,6 +34,14 @@ impl WsConnection {
 
     pub fn get_last_read_time(&self) -> DateTimeAsMicroseconds {
         self.last_read_time.as_date_time()
+    }
+
+    pub fn update_last_ping_sent(&self, now: DateTimeAsMicroseconds) {
+        self.last_ping_sent.update(now);
+    }
+
+    pub fn get_last_ping_sent(&self) -> DateTimeAsMicroseconds {
+        self.last_ping_sent.as_date_time()
     }
 
     pub async fn send_message(&self, message: Message) {
